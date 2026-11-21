@@ -1,6 +1,6 @@
 {
   "name": "toto-node-template",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Template for Toto NodeJS Microservices",
   "main": "index.js",
   "scripts": {
