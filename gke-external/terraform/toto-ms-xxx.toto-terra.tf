@@ -6,9 +6,11 @@
 # what a microservice hosted on the external GKE cluster needs:
 # the Artifact Registry repository, the GitHub environment used by the
 # CI/CD pipeline, the secrets, and the IAM grants to the pod's identity.
+# Section 5 adds what the Cloud Run deployment needs: remove it if the
+# microservice is not deployed on Cloud Run.
 #
-# Requires the toto-terra variables gke_project_id and gke_project_number
-# (see the toto-terra-gke README).
+# Requires the toto-terra variables gke_project_id, gke_project_number,
+# gke_cluster_name and gke_cluster_location (see the toto-terra-gke README).
 # ###############################################################
 # ###############################################################
 
@@ -62,6 +64,31 @@ resource "github_actions_environment_variable" "toto-ms-xxx-var-pid" {
     environment = var.gcp_pid
     variable_name = "GCP_PID"
     value = var.gcp_pid
+}
+# The GKE cluster the pipeline deploys to (kubectl set image), and the namespace of this environment (dev or prod)
+resource "github_actions_environment_variable" "toto-ms-xxx-var-gke-project-id" {
+    repository = "toto-ms-xxx"
+    environment = var.gcp_pid
+    variable_name = "GKE_PROJECT_ID"
+    value = var.gke_project_id
+}
+resource "github_actions_environment_variable" "toto-ms-xxx-var-gke-cluster-name" {
+    repository = "toto-ms-xxx"
+    environment = var.gcp_pid
+    variable_name = "GKE_CLUSTER_NAME"
+    value = var.gke_cluster_name
+}
+resource "github_actions_environment_variable" "toto-ms-xxx-var-gke-cluster-location" {
+    repository = "toto-ms-xxx"
+    environment = var.gcp_pid
+    variable_name = "GKE_CLUSTER_LOCATION"
+    value = var.gke_cluster_location
+}
+resource "github_actions_environment_variable" "toto-ms-xxx-var-gke-namespace" {
+    repository = "toto-ms-xxx"
+    environment = var.gcp_pid
+    variable_name = "GKE_NAMESPACE"
+    value = var.toto_environment
 }
 
 # ---------------------------------------------------------------
@@ -134,3 +161,55 @@ resource "google_project_iam_member" "toto-ms-xxx-gke-role-secretmanagedaccessor
 #     role = "roles/aiplatform.user"
 #     member = local.toto_ms_xxx_gke_principal
 # }
+
+# ---------------------------------------------------------------
+# 5. Cloud Run
+# REMOVE THIS SECTION IF THE MICROSERVICE IS NOT DEPLOYED ON CLOUD RUN
+# (and comment out the "Deploy to Cloud Run" step of the release-*.yml workflows)
+# ---------------------------------------------------------------
+# 5.1. Service Account the Cloud Run service runs as
+resource "google_service_account" "toto-ms-xxx-service-account" {
+    account_id = "toto-ms-xxx"
+    display_name = "XXX Service Account"
+}
+resource "google_project_iam_member" "toto-ms-xxx-role-secretmanagedaccessor" {
+    project = var.gcp_pid
+    role = "roles/secretmanager.secretAccessor"
+    member = format("serviceAccount:%s", google_service_account.toto-ms-xxx-service-account.email)
+}
+# UNCOMMENT WHAT THE MICROSERVICE NEEDS (same roles as the GKE principal in section 4)
+# resource "google_project_iam_member" "toto-ms-xxx-role-gcs" {
+#     project = var.gcp_pid
+#     role = "roles/storage.admin"
+#     member = format("serviceAccount:%s", google_service_account.toto-ms-xxx-service-account.email)
+# }
+# resource "google_project_iam_member" "toto-ms-xxx-role-pubsub" {
+#     project = var.gcp_pid
+#     role = "roles/pubsub.publisher"
+#     member = format("serviceAccount:%s", google_service_account.toto-ms-xxx-service-account.email)
+# }
+# resource "google_project_iam_member" "toto-ms-xxx-role-aiplatform" {
+#     project = var.gcp_pid
+#     role = "roles/aiplatform.user"
+#     member = format("serviceAccount:%s", google_service_account.toto-ms-xxx-service-account.email)
+# }
+
+# 5.2. Github environment secrets used by the "Deploy to Cloud Run" step
+resource "github_actions_environment_secret" "toto-ms-xxx-secret-service-account" {
+    repository = "toto-ms-xxx"
+    environment = var.gcp_pid
+    secret_name = "SERVICE_ACCOUNT"
+    plaintext_value = google_service_account.toto-ms-xxx-service-account.email
+}
+resource "github_actions_environment_secret" "toto-ms-xxx-secret-service-base-url" {
+    repository = "toto-ms-xxx"
+    environment = var.gcp_pid
+    secret_name = "SERVICE_BASE_URL"
+    plaintext_value = format("https://toto-ms-xxx-%s", var.cloud_run_endpoint_suffix)
+}
+resource "github_actions_environment_secret" "toto-ms-xxx-secret-gale-broker-endpoint" {
+    repository = "toto-ms-xxx"
+    environment = var.gcp_pid
+    secret_name = "GALE_BROKER_URL"
+    plaintext_value = format("https://gale-broker-%s/galebroker", var.cloud_run_endpoint_suffix)
+}

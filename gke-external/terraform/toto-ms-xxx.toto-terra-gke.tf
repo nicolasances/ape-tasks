@@ -6,6 +6,11 @@
 # It deploys the microservice in the dev and prod namespaces of the
 # GKE cluster and exposes it on the shared Gateway, under /<basepath>.
 # It uses locals, namespaces and the remote state defined in workloads/.
+#
+# Terraform owns the shape of the workload. The image is set by Terraform only
+# when the Deployment is created: after that, the CI/CD pipeline of the
+# microservice deploys new images (kubectl set image). The pipeline's access
+# to the namespace is given by workloads/ci-deployer.tf: nothing to add here.
 # ###############################################################
 # ###############################################################
 
@@ -44,7 +49,7 @@ resource "kubernetes_config_map_v1" "toto-ms-xxx-config" {
 # 3. Deployment
 # ---------------------------------------------------------------
 variable "toto_ms_xxx_image_tag" {
-    description = "Image tag (package.json version) of toto-ms-xxx to deploy, per environment (keys: dev, prod)"
+    description = "Image tag (package.json version) of toto-ms-xxx to deploy, per environment (keys: dev, prod). Only used when the Deployment is created: after that CI owns the image and changing this has no effect"
     type = map(string)
 }
 resource "kubernetes_deployment_v1" "toto-ms-xxx-deployment" {
@@ -130,6 +135,9 @@ resource "kubernetes_deployment_v1" "toto-ms-xxx-deployment" {
             spec[0].template[0].spec[0].container[0].security_context,
             spec[0].template[0].spec[0].security_context,
             spec[0].template[0].spec[0].toleration,
+            # CI (GitHub Actions in the microservice repo) owns the image after creation:
+            # it runs `kubectl set image`. Terraform only sets it when it creates the Deployment.
+            spec[0].template[0].spec[0].container[0].image,
         ]
     }
 }
