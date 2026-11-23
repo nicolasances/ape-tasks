@@ -1,7 +1,7 @@
 {
-  "name": "toto-node-template",
+  "name": "ape-tasks",
   "version": "1.0.1",
-  "description": "Template for Toto NodeJS Microservices",
+  "description": "Ape Tasks microservice: receives tasks for the agents",
   "main": "index.js",
   "scripts": {
     "dev": "npx nodemon",
@@ -27,7 +27,7 @@
     "mongodb": "^6.2.0",
     "path": "^0.12.7",
     "request": "^2.88.2",
-    "totoms": "^2.3.2"
+    "totoms": "^2.5.0"
   },
   "devDependencies": {
     "@types/connect-busboy": "^1.0.2",

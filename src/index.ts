@@ -1,19 +1,16 @@
 import { getHyperscalerConfiguration, SupportedHyperscalers, TotoMicroservice, TotoMicroserviceConfiguration } from 'totoms';
 import { ControllerConfig } from "./Config";
-import { SayHello } from './dlg/ExampleDelegate';
 
 const config: TotoMicroserviceConfiguration = {
-    serviceName: "toto-ms-ex1",
-    basePath: '/ex1',
+    serviceName: "ape-tasks",
+    basePath: '/apetasks',
     environment: {
-        hyperscaler: process.env.HYPERSCALER as SupportedHyperscalers || "aws",
+        hyperscaler: process.env.HYPERSCALER as SupportedHyperscalers || "gcp",
         hyperscalerConfiguration: getHyperscalerConfiguration()
     },
     customConfiguration: ControllerConfig,
     apiConfiguration: {
-        apiEndpoints: [
-            { method: 'GET', path: '/hello', delegate: SayHello }
-        ],
+        apiEndpoints: [],
         apiOptions: { noCorrelationId: true }
     }, 
 };
