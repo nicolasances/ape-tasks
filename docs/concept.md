@@ -1,6 +1,6 @@
 # ape-tasks — Concept
 
-> Status: concept / decision document. Nothing is implemented yet; the repo will be created
+> Status: concept / decision document. Only the deployable skeleton is implemented (default totoms endpoints, issue #1); the repo was created
 > from [`nicolasances/toto-node-template`](https://github.com/nicolasances/toto-node-template).
 > Written 2026-11-22.
 >
@@ -276,7 +276,7 @@ Exactly `agent-coder`'s `TaskSpec` wire format. Nothing added, nothing renamed:
 | OQ-02 | How to surface publish failures (3.3)? | Fix totoms to rethrow (benefits all services, needs a totoms release), or a rethrowing `messageBusOverride` in `ape-tasks`. Check that no existing service depends on the swallow. |
 | OQ-03 | Does the totoms GCP bus publish to a topic in another project? | Its `PubSub` client is built with `projectId: GCP_PID`. Probably works if the topic secret holds the full `projects/<gke>/topics/…` name. **Verify against `@google-cloud/pubsub` docs and test**, don't assume. |
 | OQ-04 | Toto auth at DR | Same `toto-ms-auth` reachable from DR, or a DR-specific path. Answer before the DR deployment. |
-| OQ-05 | Deploy target for `ape-tasks` itself | Cloud Run (template's `gcp/`) or GKE (`gke-external/`). The template supports both. GKE keeps the service next to the topic. |
+| OQ-05 | Deploy target for `ape-tasks` itself | **Resolved:** both Cloud Run and GKE. One pipeline builds once and deploys to both (see [docs/gke/main.md](./gke/main.md)). |
 | OQ-06 | `type` value: `taskRequested` vs something agent-specific | Matters only once a topic carries more than one kind of message. |
 | OQ-07 | Retire `gale-ms-dispatcher` and `gale-dr-dispatcher` when? | After `ape-tasks` runs in both envs. Archive rather than delete; their concept docs record useful reasoning (write-before-trigger, failure windows). |
 
