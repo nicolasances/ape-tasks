@@ -1,11 +1,11 @@
-# Deploying this Microservice on GKE (Separate GCP Project)
+# Deploying ape-tasks on GKE and Cloud Run
 
-This guide sets up the microservice to run on the GKE cluster managed by [toto-terra-gke](https://github.com/nicolasances/toto-terra-gke), which lives in a **separate GCP project** from the toto projects.
+This guide describes how `ape-tasks` runs on the GKE cluster managed by [toto-terra-gke](https://github.com/nicolasances/toto-terra-gke), which lives in a **separate GCP project** from the toto projects.
 
 How it works:
 - **Terraform** creates everything the microservice needs. `toto-terra` handles the Artifact Registry, GitHub environment, secrets and IAM. `toto-terra-gke` handles the Deployment, Service, route, probes and env.
 - **The CI/CD pipeline** (GitHub Actions in this repo) builds the image, pushes it, and deploys it with `kubectl set image`. After the Deployment has been created, Terraform no longer changes the image.
-- The pipeline also deploys to **Cloud Run**. If you don't need that, comment out the `Deploy to Cloud Run` step in the workflows and remove section 5 of the toto-terra file.
+- The pipeline also deploys to **Cloud Run**.
 
 ## Prerequisites
 - A **compliant GKE cluster**. Read the [Guide to Toto Terraforming for GKE](https://github.com/nicolasances/toto-terra-gke).
@@ -17,28 +17,19 @@ How it works:
 ## Setup
 
 ### 1. Name and base path
-- The `name` in `package.json` **must be the microservice name** (e.g. `toto-ms-xyz`). The pipeline uses it to name the Docker image, its Artifact Registry repository, and the Kubernetes Deployment and container it updates. The Terraform files use the same name.
-- Set a `basePath` in `src/index.ts` (e.g. `basePath: '/xyz'`). The base path is **mandatory** on GKE. All microservices share the same hostname and the Kubernetes Gateway routes on the path, so it must be **unique** across microservices.
+- The `name` in `package.json` **must be the microservice name** (`ape-tasks`). The pipeline uses it to name the Docker image, its Artifact Registry repository, and the Kubernetes Deployment and container it updates. The Terraform files use the same name.
+- The `basePath` in `src/index.ts` is `/apetasks`. The base path is **mandatory** on GKE. All microservices share the same hostname and the Kubernetes Gateway routes on the path, so it must be **unique** across microservices.
 
 ### 2. CI/CD pipeline
-**Move** the folder `.github` (under `gke-external`) to the root of the project.
-
-In both `release-*.yml` files, add any env vars the microservice needs to the `--set-env-vars` of the `Deploy to Cloud Run` step. Or comment out that step if you don't deploy on Cloud Run.
+The workflows are in `.github/workflows` (`release-dev.yml`, `release-prod.yml`). If the service needs more env vars, add them to the `--set-env-vars` of the `Deploy to Cloud Run` step. Today they are `HYPERSCALER`, `GCP_PID`, `SERVICE_BASE_URL` and `GALE_BROKER_URL`.
 
 ### 3. Terraform files
-Update the files in the `gke-external/terraform` folder:
-- Replace all occurrences of `toto-ms-xxx` or `toto_ms_xxx` with the microservice name.
-- In `toto-ms-xxx.toto-terra-gke.tf`, replace `<basepath>` with the `basePath` of `src/index.ts` **without the leading slash**.
-- In `toto-ms-xxx.toto-terra.tf`:
-    - remove the Mongo secrets if the microservice has no database;
-    - uncomment the extra roles it needs (Cloud Storage, Pub/Sub, Vertex AI);
-    - remove section 5 (Cloud Run) if you don't deploy on Cloud Run.
-- Rename both files to `<microservice name>.tf`, e.g. `toto-ms-expenses.tf`.
+The Terraform files are not kept in this repo. They live in the infrastructure repos:
+- `toto-terra`: `ape-tasks.tf` ([issue #53](https://github.com/nicolasances/toto-terra/issues/53)). It creates the Artifact Registry repository (readable by the GKE nodes), the GitHub environment with the secrets and variables the pipeline uses (`CICD_SERVICE_ACCOUNT`, `GCP_PID`, `GKE_PROJECT_ID`, `GKE_CLUSTER_NAME`, `GKE_CLUSTER_LOCATION`, `GKE_NAMESPACE`), and the service accounts.
+- `toto-terra-gke`: `workloads/ape-tasks.tf` ([issue #16](https://github.com/nicolasances/toto-terra-gke/issues/16)). It creates the Deployment, Service, route and probes.
 
 ### 4. toto-terra (the toto GCP projects)
-Move `toto-ms-xxx.toto-terra.tf` to `toto-terra`, commit and **push**, and apply it on **both** environments.
-
-It creates the Artifact Registry repository (readable by the GKE nodes), the GitHub environment with the secrets and variables the pipeline uses (`CICD_SERVICE_ACCOUNT`, `GCP_PID`, `GKE_PROJECT_ID`, `GKE_CLUSTER_NAME`, `GKE_CLUSTER_LOCATION`, `GKE_NAMESPACE`), the Secret Manager secrets, and the IAM grants to the pod's identity (Workload Identity).
+Apply `ape-tasks.tf` in `toto-terra` on **both** environments **before** the first push.
 
 ### 5. Push the code (first image)
 Push a `feature/**` branch to deploy to dev, and merge to `main` to deploy to prod.
@@ -50,12 +41,12 @@ The pipeline pushes the image and deploys it to Cloud Run. The Deployment doesn'
 **The image must exist before step 6.** Otherwise the Deployment never becomes ready and the `terraform apply` times out.
 
 ### 6. toto-terra-gke (the GKE cluster)
-- Move `toto-ms-xxx.toto-terra-gke.tf` to the **`workloads/`** folder of `toto-terra-gke`, commit and **push**.
+- Apply `workloads/ape-tasks.tf` in `toto-terra-gke`.
 - Add the image tags from step 5 to `scripts/tf-env.template.sh` and to your own env file: <br>
-`export TF_VAR_<microservice_name>_image_tag='{"dev":"1.0.0-a1b2c3d","prod":"1.0.0"}'` (`<microservice_name>` with underscores, e.g. `toto_ms_xyz`).
-- On the Terraform VM, `source` your env file, then run `terraform apply` in `workloads/`. That creates the microservice in the `dev` and `prod` namespaces and exposes it on `https://<environment hostname>/<basepath>`.
+`export TF_VAR_ape_tasks_image_tag='{"dev":"1.0.0-a1b2c3d","prod":"1.0.0"}'` (`ape_tasks`).
+- On the Terraform VM, `source` your env file, then run `terraform apply` in `workloads/`. That creates the microservice in the `dev` and `prod` namespaces and exposes it on `https://<environment hostname>/apetasks/`.
 
-From now on the pipeline deploys every push. `TF_VAR_<microservice_name>_image_tag` is only used if Terraform recreates the Deployment. Changing it has no effect otherwise.
+From now on the pipeline deploys every push. `TF_VAR_ape_tasks_image_tag` is only used if Terraform recreates the Deployment. Changing it has no effect otherwise.
 
 ## Deploying a new version
 
@@ -71,13 +62,13 @@ From now on the pipeline deploys every push. `TF_VAR_<microservice_name>_image_t
 
 Check which image is running:
 ```bash
-kubectl -n <dev|prod> get deploy <microservice name> -o jsonpath='{..image}'
+kubectl -n <dev|prod> get deploy ape-tasks -o jsonpath='{..image}'
 ```
 
 ## Rolling back
 There is no automatic rollback. Either:
 - push a fix (feature branch for dev, version bump + merge to `main` for prod);
-- roll back to the previous ReplicaSet: `kubectl -n <dev|prod> rollout undo deploy/<microservice name>` (list revisions with `kubectl rollout history`);
+- roll back to the previous ReplicaSet: `kubectl -n <dev|prod> rollout undo deploy/ape-tasks` (list revisions with `kubectl rollout history`);
 - or, on dev only, re-run the CI job of an older commit. On prod a re-run fails the version check, because the tag already exists.
 
 A rollback is overwritten by the next CI deploy of that environment. The Artifact Registry cleanup policy (in `toto-terra`) deletes old images, so rolling back to an old image fails if that image has been deleted.
