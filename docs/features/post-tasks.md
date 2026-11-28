@@ -1,6 +1,6 @@
 # Feature: `POST /tasks` — start an agent task
 
-> Status: specified, not implemented. Written 2026-11-28.
+> Status: implemented (issue #3), with one deviation: success is 200, not 201 (see §6). Written 2026-11-28.
 > Builds on [concept §3.1](../concept.md#31-post-tasks--queue-a-task). Where this file and the
 > concept differ on the request shape, this file wins.
 
@@ -65,7 +65,7 @@ owns their meaning.
 6. **Publish the Task Message** through the totoms `TotoMessageBus` on the type's logical topic.
    For `coding`: logical topic `agentCoderTasks` → Pub/Sub topic `agentcodertasks` in `GCP_PID`.
    Toto envelope `type: "taskRequested"`, `id: taskId`, `data: { taskId }`.
-7. **Respond** `201 { taskId, taskFile }`.
+7. **Respond** `201 { taskId, taskFile }` (actually 200 with totoms 2.5.0, see §6).
 
 ### 3.1 Task-type registry
 
@@ -97,7 +97,7 @@ No database, no Agent Registry (see [concept §8](../concept.md#8-not-doing-and-
 
 ## 4. Responses
 
-### 4.1 Success — 201
+### 4.1 Success — 201 (200 for now, see §6)
 
 ```json
 { "taskId": "7b1e…", "taskFile": "gs://<pid>-agents-data/coder/7b1e…/task.json" }
@@ -147,6 +147,9 @@ code can be written and unit-tested without them, but the end-to-end check in §
   an orphan `task.json` is left in GCS. Accepted for now
   ([concept §3.3](../concept.md#33-publish-failures-must-surface), OQ-02). Fix later, preferably
   in totoms.
+- **200 instead of 201.** totoms 2.5.0's `TotoAPIController.path` always answers 200 on success,
+  and a delegate can't set the status code. `POST /tasks` returns 200 until totoms supports
+  custom success codes. Consumers should treat any 2xx as success.
 - **No duplicate protection.** Two POSTs for the same issue give two runs (concept A-04).
 - **No dead-letter topic.** `agentcodertasks-sub` retries with backoff and keeps messages for
   1 day; there's no DLQ.

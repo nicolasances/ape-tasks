@@ -1,5 +1,6 @@
 import { getHyperscalerConfiguration, SupportedHyperscalers, TotoMicroservice, TotoMicroserviceConfiguration } from 'totoms';
 import { ControllerConfig } from "./Config";
+import { PostTask } from './dlg/PostTask';
 
 const config: TotoMicroserviceConfiguration = {
     serviceName: "ape-tasks",
@@ -10,9 +11,17 @@ const config: TotoMicroserviceConfiguration = {
     },
     customConfiguration: ControllerConfig,
     apiConfiguration: {
-        apiEndpoints: [],
+        apiEndpoints: [
+            { method: 'POST', path: '/tasks', delegate: PostTask },
+        ],
         apiOptions: { noCorrelationId: true }
-    }, 
+    },
+    messageBusConfiguration: {
+        topics: [
+            // Logical names must match the `topic` of the entries in src/util/TaskTypes.ts. The secret holds the Pub/Sub topic name (nicolasances/toto-terra#59).
+            { logicalName: "agentCoderTasks", secret: "agent_coder_tasks_topic_name" },
+        ],
+    },
 };
 
 TotoMicroservice.init(config).then(microservice => {
