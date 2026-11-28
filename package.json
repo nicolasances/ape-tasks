@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "npx nodemon",
     "build": "rm -rf ./build && tsc",
-    "start": "node build/index.js"
+    "start": "node build/index.js",
+    "test": "mocha"
   },
   "author": "nicolasances",
   "license": "ISC",
@@ -34,7 +35,9 @@
     "@types/express": "^4.17.20",
     "@types/fs-extra": "^11.0.3",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^16.11.7",
+    "mocha": "^10.8.2",
     "nodemon": "^3.0.1",
     "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
