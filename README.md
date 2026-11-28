@@ -9,6 +9,7 @@ It runs on both Cloud Run and GKE. Every push to a `feature/**` branch deploys t
 ## Table of Contents
 
 - [Concept](./docs/concept.md): what `ape-tasks` is for, the features, the data models and the open questions.
+- [Features](./docs/features/README.md): index of all features.
 - [Feature: `POST /tasks`](./docs/features/post-tasks.md): start an agent task with a `{ type, payload }` request. Only `coding` tasks for now.
 - [API endpoints](./docs/interfaces/api-endpoints.md): the REST endpoints the service exposes.
 - [Deploying on GKE and Cloud Run](./docs/gke/main.md): how the service is built, deployed and rolled back.

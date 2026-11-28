@@ -1,5 +1,7 @@
 # Feature: `POST /tasks` — start an agent task
 
+![Status](https://img.shields.io/badge/status-implemented-brightgreen?style=flat-square)
+
 > Status: implemented (issue #3), with one deviation: success is 200, not 201 (see §6). Written 2026-11-28.
 > Builds on [concept §3.1](../concept.md#31-post-tasks--queue-a-task). Where this file and the
 > concept differ on the request shape, this file wins.
