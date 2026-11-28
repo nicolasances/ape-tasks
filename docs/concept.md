@@ -2,7 +2,7 @@
 
 > Status: concept / decision document. Only the deployable skeleton is implemented (default totoms endpoints, issue #1); the repo was created
 > from [`nicolasances/toto-node-template`](https://github.com/nicolasances/toto-node-template).
-> Written 2026-11-22.
+> Written 2026-11-22. Updated 2026-11-28: `{ type, payload }` request envelope, queue moved to the toto project, OQ-01 and OQ-03 resolved.
 >
 > Vocabulary is borrowed from
 > [`agent-coder/docs/concept.md`](https://github.com/nicolasances/agent-coder/blob/main/docs/concept.md) §2
@@ -36,14 +36,14 @@ A Toto Node.js microservice with **one endpoint** that turns one HTTP request in
 `agent-coder` run.
 
 ```
-POST /tasks  { repoURL, issueURL, baseBranch? }      →  201 { taskId }
+POST /tasks  { type: "coding", payload: { repoURL, issueURL, baseBranch? } }  →  201 { taskId }
      │
-     ├─ 1. validate required fields                   → 400 if missing
+     ├─ 1. validate type + payload                    → 400 if invalid
      ├─ 2. mint taskId
      ├─ 3. write Task File  gs://{GCP_PID}-agents-data/coder/{taskId}/task.json
      │                                                 ← always before step 4
      └─ 4. publish Toto message  type=taskRequested, data={ taskId }
-                       on topic  agent-coder-tasks-<env>  (GKE project)
+                       on topic  agentcodertasks  (toto project, GCP_PID)
                                    │
                                    ▼
                      KEDA ScaledJob "agent-coder" pulls it, runs, acks/nacks
@@ -73,7 +73,7 @@ and without remembering per-environment bucket, topic and project names.
 ### 1.4 Out of scope (v1)
 
 - Task status, listing, or cancellation.
-- Multiple agent types. `coder` is the only one.
+- Multiple agent types. The request carries a `type`, but `coding` (→ `agent-coder`) is the only one supported.
 - Duplicate protection for the same issue.
 - Launching or scaling the agent. That's KEDA's job.
 
@@ -87,7 +87,7 @@ and without remembering per-environment bucket, topic and project names.
 | **taskId** | Id minted by `ape-tasks`. Names the Task File's folder and is the only thing sent on the queue. |
 | **Task File** | `task.json` at `gs://{GCP_PID}-agents-data/coder/{taskId}/task.json`. Written once by `ape-tasks`, read by `agent-coder`. The audit record of what was asked. |
 | **Task Message** | The Toto message published to request a run: envelope `type: "taskRequested"`, `data: { taskId }`. |
-| **Task Topic** | `agent-coder-tasks-<env>`, in the GKE project. Exactly-once delivery, DLQ after 5 attempts (`toto-terra-gke`). |
+| **Task Topic** | `agentcodertasks`, in the toto project (`GCP_PID`), with pull subscription `agentcodertasks-sub`. Exactly-once delivery, exponential retry backoff, 1-day retention, no dead-letter topic (`toto-terra`). |
 | **Toto envelope** | The `TotoMessage` shape totoms publishes: `{ timestamp, cid, id, type, msg, data }`. |
 | **ScaledJob** | The KEDA resource that starts one `agent-coder` pod per message in the subscription backlog. |
 | **Write-before-publish** | The ordering rule: the Task File must exist before its taskId is on the queue, or a pod can pull an id it can't resolve. |
@@ -97,6 +97,9 @@ and without remembering per-environment bucket, topic and project names.
 ## 3. Features
 
 ### 3.1 `POST /tasks` — queue a task
+
+> The detailed, current spec is [docs/features/post-tasks.md](./features/post-tasks.md). It
+> replaces the flat request body below with a `{ type, payload }` envelope; the steps are the same.
 
 Delegate `PostTask` (`src/dlg/PostTask.ts`), following the template's delegate conventions.
 
@@ -120,7 +123,10 @@ Delegate `PostTask` (`src/dlg/PostTask.ts`), following the template's delegate c
 | 3 | Nothing written | 500 |
 | 4 | Orphan `task.json`, never run. Harmless, and it records what was asked. | **Must be 500**. See 3.3. |
 
-### 3.2 Toto-native publishing (requires a change in `agent-coder`)
+### 3.2 Toto-native publishing
+
+> **Done:** `agent-coder` #13 (`feature/toto-envelope-queue`) is merged; it reads `data.taskId`
+> from the Toto envelope. The text below is kept for the reasoning.
 
 `ape-tasks` publishes through the standard totoms message bus, so the message on the queue
 is a full Toto envelope with the id in `data.taskId`.
@@ -151,7 +157,7 @@ v1 needs one of these (see OQ-02):
 ### 3.4 Two environments, one codebase
 
 Home and DR use the same mechanism (GKE + KEDA + Pub/Sub). Only configuration differs:
-`GCP_PID` (bucket project), the Task Topic's full resource name (GKE project), and the
+`GCP_PID` (the project holding both the bucket and the Task Topic), the topic-name secret, and the
 hyperscaler config. No code paths branch on environment.
 
 ### 3.5 Toto auth
@@ -164,6 +170,10 @@ a valid Toto token.
 ## 4. Data Models
 
 ### 4.1 Request — `POST /tasks`
+
+> Superseded by the `{ type, payload }` envelope in
+> [docs/features/post-tasks.md](./features/post-tasks.md#2-request). The fields below are now
+> the `payload` of a `coding` task.
 
 ```json
 {
@@ -196,7 +206,7 @@ Exactly `agent-coder`'s `TaskSpec` wire format. Nothing added, nothing renamed:
 { "taskId": "7b1e…", "repoURL": "…", "issueURL": "…", "baseBranch": "main" }
 ```
 
-### 4.4 Task Message — on `agent-coder-tasks-<env>`
+### 4.4 Task Message — on `agentcodertasks`
 
 ```json
 {
@@ -217,15 +227,15 @@ Exactly `agent-coder`'s `TaskSpec` wire format. Nothing added, nothing renamed:
 |---|---|---|
 | `GCP_PID` | env | Toto project. Derives the bucket `{GCP_PID}-agents-data`. |
 | `HYPERSCALER` | env | `gcp`. |
-| Task Topic resource name | Secret Manager secret, per totoms `MessageBusConfiguration.topics[].secret` | Full `projects/<gke-project>/topics/agent-coder-tasks-<env>`. See OQ-03. |
+| Task Topic name | Secret Manager secret, per totoms `MessageBusConfiguration.topics[].secret` | `agentcodertasks`, in `GCP_PID`. The secret doesn't exist yet in `toto-terra`. |
 | Mongo | none | `getMongoSecretNames()` returns `null`. |
 
 ### 4.6 IAM (service's workload identity)
 
 | Permission | Resource | Project |
 |---|---|---|
-| `roles/storage.objectCreator` | `{GCP_PID}-agents-data`, prefix `coder/` if possible | Toto |
-| `roles/pubsub.publisher` | topic `agent-coder-tasks-<env>` | GKE (set manually, per `toto-terra-gke/docs/operations.md`) |
+| `roles/storage.objectCreator` | `{GCP_PID}-agents-data`, prefix `coder/` if possible | Toto (not granted yet) |
+| `roles/pubsub.publisher` | topic `agentcodertasks` | Toto, in `toto-terra` `ape-tasks.tf` (GKE principal granted; Cloud Run SA not yet) |
 | `roles/secretmanager.secretAccessor` | topic secret, auth secrets | Toto |
 
 ---
@@ -253,15 +263,14 @@ Exactly `agent-coder`'s `TaskSpec` wire format. Nothing added, nothing renamed:
   doesn't interpret any field.
 - **Write-before-publish.** Non-negotiable. A taskId must never be on the queue before its
   Task File exists.
-- **Cross-project.** Bucket in the Toto project, topic in the GKE project.
-- **Pub/Sub IAM is manual.** The Terraform VM can't set it (`toto-terra-gke/docs/operations.md`).
+- **Same project.** Bucket and topic are both in the toto project (`GCP_PID`). Their IAM is in `toto-terra`.
 
 ### 6.2 Assumptions (bets)
 
 | # | Bet | What breaks it |
 |---|---|---|
-| A-01 | DR has the same layout: an `agents-data` bucket, an `agent-coder-tasks-<env>` topic, a KEDA ScaledJob | DR differs in naming or project split → config grows, or code branches |
-| A-02 | `agent-coder` can be changed to accept `data.taskId` before go-live | Change blocked or deprioritised → `ape-tasks` is useless until it lands (every message dropped) |
+| A-01 | DR has the same layout: an `agents-data` bucket, an `agentcodertasks` topic, a KEDA ScaledJob | DR differs in naming or project split → config grows, or code branches |
+| A-02 | ~~`agent-coder` can be changed to accept `data.taskId` before go-live~~ | Done: `agent-coder` #13. |
 | A-03 | totoms boots fine with no Mongo and with a message bus used only for publishing | `TotoMicroservice.init` requires DB config or a handler → workaround needed |
 | A-04 | Duplicate POSTs are rare with one curl user | Concurrent POSTs for one issue → two paid runs. `agent-coder` only skips once a PR is **already open** |
 | A-05 | Toto auth works for curl at DR | DR access to `toto-ms-auth` blocked → DR needs a different auth path (see OQ-04) |
@@ -272,9 +281,9 @@ Exactly `agent-coder`'s `TaskSpec` wire format. Nothing added, nothing renamed:
 
 | # | Question | Options / Notes |
 |---|---|---|
-| OQ-01 | Order and owner of the `agent-coder` `data.taskId` change | Separate issue in `agent-coder`, merged on `feature/gke-pubsub-queue-job` or after it lands on `main`. Blocks go-live. |
+| OQ-01 | Order and owner of the `agent-coder` `data.taskId` change | **Resolved:** merged in `agent-coder` #13. |
 | OQ-02 | How to surface publish failures (3.3)? | Fix totoms to rethrow (benefits all services, needs a totoms release), or a rethrowing `messageBusOverride` in `ape-tasks`. Check that no existing service depends on the swallow. |
-| OQ-03 | Does the totoms GCP bus publish to a topic in another project? | Its `PubSub` client is built with `projectId: GCP_PID`. Probably works if the topic secret holds the full `projects/<gke>/topics/…` name. **Verify against `@google-cloud/pubsub` docs and test**, don't assume. |
+| OQ-03 | Does the totoms GCP bus publish to a topic in another project? | **Resolved / moot:** the topic `agentcodertasks` was moved to the toto project (`GCP_PID`), see `toto-terra` #56 and `toto-terra-gke` #19. |
 | OQ-04 | Toto auth at DR | Same `toto-ms-auth` reachable from DR, or a DR-specific path. Answer before the DR deployment. |
 | OQ-05 | Deploy target for `ape-tasks` itself | **Resolved:** both Cloud Run and GKE. One pipeline builds once and deploys to both (see [docs/gke/main.md](./gke/main.md)). |
 | OQ-06 | `type` value: `taskRequested` vs something agent-specific | Matters only once a topic carries more than one kind of message. |
@@ -289,12 +298,12 @@ Exactly `agent-coder`'s `TaskSpec` wire format. Nothing added, nothing renamed:
   every failure-window question `gale-ms-dispatcher` had to document.
 - **Mongo.** Nothing to index without a status endpoint. The Task File is the record.
 - **Agent Registry / `/agents/{id}/tasks`.** There's one agent. A registry for one row is
-  ceremony. When a second agent shows up, add an `agent` body field (see §9).
+  ceremony. The request's `type` selects the agent through a map in code (see §9).
 - **Launching jobs.** KEDA scales from the subscription backlog. Calling the Kubernetes API
   would duplicate it and require RBAC.
 - **Duplicate protection.** A deterministic taskId plus a 409 needs a force flag and changes
   re-run semantics. One curl user makes it rare. Accepted as a known gap (A-04).
-- **Retries.** Pub/Sub redelivery on nack plus the DLQ already do this with the right
+- **Retries.** Pub/Sub redelivery on nack with exponential backoff already does this with the right
   semantics (`agent-coder` nacks only on infra failure).
 - **Raw (non-Toto) publish.** Simpler, and it needs no `agent-coder` change, but it steps
   outside the Toto bus convention and loses `cid` tracing. Rejected in favour of 3.2.
@@ -306,7 +315,7 @@ Exactly `agent-coder`'s `TaskSpec` wire format. Nothing added, nothing renamed:
 ## 9. Ideas for Future Versions
 
 - **Issue-only input** — `POST /tasks { issueURL }`, with `repoURL` derived. One field per curl.
-- **Multiple agents** — optional `agent` body field (default `coder`) mapping to a bucket prefix and topic. No URL change.
+- **Multiple agents** — add an entry to the task-type registry (the request's `type` already selects the agent, see [docs/features/post-tasks.md](./features/post-tasks.md)). No URL change.
 - **Status** — `GET /tasks/{taskId}` reading `task-output.json` straight from GCS. No database needed.
 - **GitHub trigger** — a label on an issue calls `POST /tasks` via an Action or webhook.
 - **Duplicate guard** — deterministic taskId per issue, 409 if `task.json` exists, `force: true` to re-run.

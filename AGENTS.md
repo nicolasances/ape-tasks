@@ -24,6 +24,7 @@ src/
 ├── api/              # Clients for external microservice APIs
 └── util/             # Shared utilities
 docs/                 # General documentation for the project
+└── features/         # One file per feature (e.g. an API endpoint): behaviour, validation, acceptance criteria. Issues link to these.
 └── capabilities/     # Documents that generally describe the core capabilities of the microservice
 └── specs/            # Documents that describe detailed functionalities, typically subparts of the capabilities
 ```
